@@ -3,13 +3,15 @@
 A lightweight ComfyUI extension implementing **S²-Guidance** and **Perpo-Guidance**, two advanced sampling techniques designed to improve prompt adherence and generation robustness compared to standard CFG. **S²-Guidance** is based on the methodology described in [arXiv:2508.12880](https://arxiv.org/abs/2508.12880), while **Perpo-Guidance** is my personal take on it with slightly different operations.
 
 ## 📦 Installation
+Find it in ComfyUI Manager as `ComfyUI-S2Guidance` and restart or install manually like
 1. Navigate to your `ComfyUI/custom_nodes/` directory.
 2. Clone this repository:
    ```bash
    git clone https://github.com/orpheus-gaze/ComfyUI-S2Guidance.git
    ```
-3. No extra pip dependencies are required (uses standard `torch`, `numpy`, and ComfyUI's core APIs).
-4. Restart ComfyUI or refresh your browser window.
+3. Restart ComfyUI and refresh your ComfyUI tab.
+
+Note: No extra pip dependencies are required (uses standard `torch`, `numpy`, and ComfyUI's core APIs).
 
 ## 🎛️ Usage & Nodes
 After installation, two new nodes will appear in your node search under the **✨ S2GUIDANCE** category:
