@@ -1,3 +1,14 @@
+"""
+    This ComfyUI node provides two model patch nodes that change the built-in 
+    CFG guidance function by running a time step prediction like the original
+    CFG guidance but on a subset of the whole model, as described in arxiv 
+    2508.12880. This subnetwork provides a slightly worse result than the 
+    original prediction and by subtracting this worse result it should lead
+    to a better guidance to the prompt target.
+
+    @author: orpheus-gaze on Github
+"""
+
 import random
 import math
 
@@ -10,11 +21,12 @@ from comfy_api.latest import ComfyExtension, io
 import torch
 import numpy as np
 
+
 def get_model_config(model):
     """
         Find the correct amount of blocks in a model and its naming.
     """
-    # TODO This function still isn't robust enough and will only work with a
+    # TODO #1 This function still isn't robust enough and will only work with a
     # select number of models.
 
     # for at least z-image
@@ -85,7 +97,7 @@ def skip_layer_logic(
                                                             model_options,
                                                             skip,
                                                             "dit", 
-                                                            "double_block", 
+                                                            naming[0], # "double_block",
                                                             layer
                                                         )
         else:
@@ -95,7 +107,7 @@ def skip_layer_logic(
                                                 model_options,
                                                 skip,
                                                 "dit", 
-                                                "single_block", 
+                                                naming[1], # "single_block",
                                                 layer
                                             )
 
@@ -156,7 +168,8 @@ class S2GuidanceDIT(io.ComfyNode):
                     cls,
                     model,
                     s2_guidance_scale: float,
-                    skip_layers_percentage: int) -> io.NodeOutput:
+                    skip_layers_percentage: int
+                ) -> io.NodeOutput:
         '''
             This is an implementation of S²-guidance, as described in arxiv 
             2508.12880, and returns a patched model that applies the guidance 
@@ -173,7 +186,12 @@ class S2GuidanceDIT(io.ComfyNode):
                 - S²-guidance patched model
         '''
 
-        def apply_s2_guidance(args, naming, double_layers: int, single_layers: int):
+        def apply_s2_guidance(
+                                args,
+                                naming,
+                                double_layers: int,
+                                single_layers: int
+                            ):
             (s2_cond_pred,) = skip_layer_logic(
                                             args,
                                             naming,
@@ -184,7 +202,7 @@ class S2GuidanceDIT(io.ComfyNode):
 
             refined = cfg_result - (s2_guidance_scale * s2_cond_pred)
             # Match the 'energy' of the original CFG so colors stay correct
-            return refined * (torch.norm(cfg_result) / torch.norm(refined))
+            return refined * (torch.norm(cfg_result, dim=None) / torch.norm(refined, dim=None))
 
         def post_cfg_function(args):
             model = args["model"]
@@ -228,14 +246,14 @@ class PerpoGuidanceDIT(io.ComfyNode):
             inputs=[
                 io.Model.Input("model"),
                 io.Float.Input("perpo_guidance_scale",
-                    default=1.0,
+                    default=0.3,
                     min=0.0,
-                    max=10.0,
-                    step=0.1,
+                    max=2.0,
+                    step=0.01,
                     optional=True,
                     tooltip=(
                         "The strength of the perpo guidance scale. \
-                        \n\n(no effect=0.0, strong effect=10.0, default=1)"
+                        \n\n(no effect=0.0, strong effect=2.0, default=0.3)"
                     )
                 ),
                 io.Int.Input("skip_layers_percentage",
@@ -261,7 +279,8 @@ class PerpoGuidanceDIT(io.ComfyNode):
                 cls,
                 model,
                 perpo_guidance_scale: float,
-                skip_layers_percentage: int) -> io.NodeOutput:
+                skip_layers_percentage: int
+                ) -> io.NodeOutput:
         '''
             This is an modified implementation of S²-guidance, as described in 
             arxiv 2508.12880, which I've named as Perpo-Guidance, and returns a 
@@ -316,10 +335,11 @@ class PerpoGuidanceDIT(io.ComfyNode):
             refined = cfg_result - (perpo_guidance_scale * orthogonal)
 
             # Match the 'energy' of the original CFG so colors stay correct
-            perpo_result = refined * (torch.norm(cfg_result) / torch.norm(refined))
+            perpo_result = refined * (torch.norm(cfg_result, dim=None)
+                                        / torch.norm(refined, dim=None))
 
             # Clamp the result to more than 3 sd (~0.99)
-            s = torch.quantile(torch.abs(perpo_result), 0.995)
+            s = torch.quantile(torch.abs(perpo_result), 0.995, dim=None)
             s = torch.clamp(s, min=3.0)
             perpo_result = perpo_result / s * 3.0
 
