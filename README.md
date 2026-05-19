@@ -50,6 +50,7 @@ Please note that not all DIT model architectures have been tested, but functiona
 - Start with low guidance scales (around `0.1–0.5`). High values can oversharpen or introduce artifacts.
 - `skip_layers_percentage` around `1-10` usually provides the best balance between stability and improvement.
 - If a model looks "flat" or desaturated, try switching to Perpo-Guidance or lowering the guidance scale slightly.
+- When using LORAs you can sometimes bump up the parameters considerably.
 
 ## 🕰️ Future
 I think there are some possible steps that I might take to improve on the functionality of these nodes. These include:
