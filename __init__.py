@@ -24,39 +24,76 @@ import numpy as np
 
 def get_model_config(model):
     """
-        Find the correct amount of blocks in a model and its naming.
+        Find the correct amount of blocks in a model. If the model is a single 
+        stream diffusion model it will only count the double_blocks.
+        
+        The naming scheme as I have found it to be able to get the amount of 
+        layers is as such:
+        
+        audio_dit layers
+        aura  double_layers single_layers
+        chroma double_blocks single_blocks
+        cogvideo blocks
+        anima + cosmos blocks
+        flux double_blocks single_blocks
+        genmo blocks
+        hidream_o1 layers
+        hunyuan3d double_blocks single_blocks
+        hunyuan3dv2_1 blocks "block"
+        hunyuan_video double_blocks single_blocks
+        hydit blocks
+        kandinsky5 visual_transformer_blocks
+        lightricks transformer_blocks
+        lumina layers 
+        pixartms blocks
+        qwen_image transformer_blocks
+        wan blocks
+        
+        Note that I think that hunyuan3dv2_1 is not able to use this function 
+        because it replaces its DIT layers with the "block" paradigm instead of
+        the usual "double_block" one.
     """
-    # TODO #1 This function still isn't robust enough and will only work with a
-    # select number of models.
+    dif_mod = model.diffusion_model
 
-    # for at least z-image
-    if model.model_config.unet_config.get("n_layers"):
-        double_layers = model.model_config.unet_config["n_layers"]
-        single_layers = 0 # single block arch
+    double_count = 0
+    single_count = 0
 
-        naming = ["layers", "layers"]
+    if hasattr(dif_mod, 'double_blocks'):
+        # many dit models
+        double_count = len(dif_mod.double_blocks)
+    if hasattr(dif_mod, 'single_blocks'):
+        # many dit models    
+        single_count = len(dif_mod.single_blocks)    
 
-        return (naming, double_layers, single_layers)
+    if hasattr(dif_mod, 'double_layers'):
+        # Auraflow DIT
+        double_count = len(dif_mod.double_layers)
+    if hasattr(dif_mod, 'single_layers'):
+        # Auraflow DIT
+        single_count = len(dif_mod.single_layers)
 
-    # for at least flux 2 klein
-    if model.model_config.unet_config.get("depth"):
-        double_layers = model.model_config.unet_config["depth"]
-        single_layers = model.model_config.unet_config["depth_single_blocks"]
+    if hasattr(dif_mod, 'layers'):
+        # ernie, lumina, omnigen
+        double_count = len(dif_mod.layers)
 
-        naming = ["double_blocks", "single_blocks"]
+    if hasattr(dif_mod, 'blocks'):
+        # cogvideoX, cosmos, anima, genmo, hunyuand3dv2_1, hydit, pixart, wan
+        double_count = len(dif_mod.blocks)
 
-        return (naming, double_layers, single_layers)
+    if hasattr(dif_mod, 'visual_transformer_blocks'):
+        # kandinsky5
+        double_count = len(dif_mod.visual_transformer_blocks)
 
-    # for auraflow type configuration of models
-    if model.model_config.unet_config.get("n_double_layers"):
-        double_layers = model.model_config.unet_config["n_double_layers"]
-        n_layers = model.model_config.unet_config["n_layers"]
-        single_layers = n_layers - double_layers
-        naming = ["double_layers", "single_layers"]
+    if hasattr(dif_mod, 'transformer_blocks'):
+        # acestep, lightricks, qwen_image
+        double_count = len(dif_mod.transformer_blocks)
 
-        return (naming, double_layers, single_layers)
+    if double_count == 0:
+        print("S2 Perpo Guidance was unable to detect layers.")
 
-    return None
+    print("double to single", double_count, single_count)
+
+    return (double_count, single_count)
 
 def skip (args, extra_args):
     """
@@ -68,7 +105,6 @@ def skip (args, extra_args):
 
 def skip_layer_logic(
                         args,
-                        naming,
                         double_layers: int,
                         single_layers: int,
                         skip_layers_percentage: int
@@ -97,7 +133,7 @@ def skip_layer_logic(
                                                             model_options,
                                                             skip,
                                                             "dit", 
-                                                            naming[0], # "double_block",
+                                                            "double_block",
                                                             layer
                                                         )
         else:
@@ -107,7 +143,7 @@ def skip_layer_logic(
                                                 model_options,
                                                 skip,
                                                 "dit", 
-                                                naming[1], # "single_block",
+                                                "single_block",
                                                 layer
                                             )
 
@@ -188,13 +224,11 @@ class S2GuidanceDIT(io.ComfyNode):
 
         def apply_s2_guidance(
                                 args,
-                                naming,
                                 double_layers: int,
                                 single_layers: int
                             ):
             (s2_cond_pred,) = skip_layer_logic(
                                             args,
-                                            naming,
                                             double_layers,
                                             single_layers,
                                             skip_layers_percentage)
@@ -206,15 +240,14 @@ class S2GuidanceDIT(io.ComfyNode):
 
         def post_cfg_function(args):
             model = args["model"]
-            naming = []
-            (naming, double_layers, single_layers) = get_model_config(model)
+            (double_layers, single_layers) = get_model_config(model)
 
-            if naming[0] is None:
+            if double_layers == 0:
                 print("Model not supported for S²-Guidance")
                 # if not supported architecture do not change function
                 return io.NodeOutput(m)
 
-            return apply_s2_guidance(args, naming, double_layers, single_layers)
+            return apply_s2_guidance(args, double_layers, single_layers)
 
         print(
             "Using S²-Guidance - s2_guidance_scale:", s2_guidance_scale, 
@@ -304,7 +337,6 @@ class PerpoGuidanceDIT(io.ComfyNode):
 
         def apply_perpo_guidance(
                                 args,
-                                naming,
                                 double_layers: int,
                                 single_layers: int):
             '''
@@ -314,10 +346,11 @@ class PerpoGuidanceDIT(io.ComfyNode):
                 you only the orthogonal difference between the cfg prediction 
                 and the subnetwork prediction. 
             '''
+            bool_clamping = False
+
             cfg_result = args["denoised"]
             (perpo_cond_pred,) = skip_layer_logic(
                                                     args,
-                                                    naming,
                                                     double_layers,
                                                     single_layers,
                                                     skip_layers_percentage)
@@ -338,27 +371,28 @@ class PerpoGuidanceDIT(io.ComfyNode):
             perpo_result = refined * (torch.norm(cfg_result, dim=None)
                                         / torch.norm(refined, dim=None))
 
-            # Clamp the result to more than 3 sd (~0.99)
-            s = torch.quantile(torch.abs(perpo_result), 0.995, dim=None)
-            s = torch.clamp(s, min=3.0)
-            perpo_result = perpo_result / s * 3.0
+            if bool_clamping is True:
+                # Optionally clamp the result to more than 3 sd (~0.99)
+                s = torch.quantile(torch.abs(perpo_result), 0.995, dim=None)
+                s = torch.clamp(s, min=3.0)
+                perpo_result = perpo_result / s * 3.0
 
             return perpo_result
 
         def post_cfg_function(args):
             model = args["model"]
-            naming = []
-            (naming, double_layers, single_layers) = get_model_config(model)
+            (double_layers, single_layers) = get_model_config(model)
 
-            if naming[0] is None:
+            if double_layers == 0:
                 print("Model not supported for Perpo-Guidance")
                 return io.NodeOutput(m) # if not supported architecture do not change function
 
-            return apply_perpo_guidance(args, naming, double_layers, single_layers)
+            return apply_perpo_guidance(args, double_layers, single_layers)
 
         print("Using Perpo-Guidance - perpo_guidance_scale:",
                 perpo_guidance_scale, ", skip_layers_percentage:",
                 skip_layers_percentage)
+
         m = model.clone()
         m.set_model_sampler_post_cfg_function(post_cfg_function)
 
