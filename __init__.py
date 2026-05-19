@@ -62,8 +62,8 @@ def get_model_config(model):
         # many dit models
         double_count = len(dif_mod.double_blocks)
     if hasattr(dif_mod, 'single_blocks'):
-        # many dit models    
-        single_count = len(dif_mod.single_blocks)    
+        # many dit models
+        single_count = len(dif_mod.single_blocks)
 
     if hasattr(dif_mod, 'double_layers'):
         # Auraflow DIT
@@ -90,8 +90,6 @@ def get_model_config(model):
 
     if double_count == 0:
         print("S2 Perpo Guidance was unable to detect layers.")
-
-    print("double to single", double_count, single_count)
 
     return (double_count, single_count)
 
@@ -301,6 +299,14 @@ class PerpoGuidanceDIT(io.ComfyNode):
                         should be skipped. \n\n(one=1, all=100, default=1)"
                     )
                 ),
+                io.Boolean.Input("apply_clamping",
+                    default=True,
+                    tooltip=(
+                        "Set True when you want to clamp the final result.\
+                        This will constrain the final result somewhat. \
+                        \n\n(no clamping=False, clamping=True, default=True)"
+                    )
+                ),
             ],
             outputs=[
                 io.Model.Output("model"),
@@ -312,7 +318,8 @@ class PerpoGuidanceDIT(io.ComfyNode):
                 cls,
                 model,
                 perpo_guidance_scale: float,
-                skip_layers_percentage: int
+                skip_layers_percentage: int,
+                apply_clamping: bool
                 ) -> io.NodeOutput:
         '''
             This is an modified implementation of S²-guidance, as described in 
@@ -338,7 +345,9 @@ class PerpoGuidanceDIT(io.ComfyNode):
         def apply_perpo_guidance(
                                 args,
                                 double_layers: int,
-                                single_layers: int):
+                                single_layers: int,
+                                apply_clamping: bool
+                                ):
             '''
                 Subtract the perpo-guidance from the CFG result. To make sure 
                 that you only subtract the differences from the cfg result you 
@@ -346,7 +355,6 @@ class PerpoGuidanceDIT(io.ComfyNode):
                 you only the orthogonal difference between the cfg prediction 
                 and the subnetwork prediction. 
             '''
-            bool_clamping = False
 
             cfg_result = args["denoised"]
             (perpo_cond_pred,) = skip_layer_logic(
@@ -371,7 +379,7 @@ class PerpoGuidanceDIT(io.ComfyNode):
             perpo_result = refined * (torch.norm(cfg_result, dim=None)
                                         / torch.norm(refined, dim=None))
 
-            if bool_clamping is True:
+            if apply_clamping is True:
                 # Optionally clamp the result to more than 3 sd (~0.99)
                 s = torch.quantile(torch.abs(perpo_result), 0.995, dim=None)
                 s = torch.clamp(s, min=3.0)
@@ -387,7 +395,7 @@ class PerpoGuidanceDIT(io.ComfyNode):
                 print("Model not supported for Perpo-Guidance")
                 return io.NodeOutput(m) # if not supported architecture do not change function
 
-            return apply_perpo_guidance(args, double_layers, single_layers)
+            return apply_perpo_guidance(args, double_layers, single_layers, apply_clamping)
 
         print("Using Perpo-Guidance - perpo_guidance_scale:",
                 perpo_guidance_scale, ", skip_layers_percentage:",
