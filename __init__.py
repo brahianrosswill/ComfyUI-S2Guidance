@@ -21,7 +21,6 @@ from comfy_api.latest import ComfyExtension, io
 import torch
 import numpy as np
 
-
 def get_model_config(model):
     """
         Find the correct amount of blocks in a model. If the model is a single 
@@ -31,6 +30,7 @@ def get_model_config(model):
         layers is as such:
         
         audio_dit layers
+        acestep
         aura  double_layers single_layers
         chroma double_blocks single_blocks
         cogvideo blocks
@@ -72,9 +72,22 @@ def get_model_config(model):
         # Auraflow DIT
         single_count = len(dif_mod.single_layers)
 
+    if hasattr(dif_mod, 'joint_transformer_blocks'):
+        # Auraflow DIT per huggingface
+        double_count = len(dif_mod.joint_transformer_blocks)
+    if hasattr(dif_mod, 'single_transformer_blocks'):
+        # Auraflow DIT per huggingface
+        single_count = len(dif_mod.single_transformer_blocks)
+
     if hasattr(dif_mod, 'layers'):
         # ernie, lumina, omnigen
         double_count = len(dif_mod.layers)
+
+    if hasattr(dif_mod, 'decoder'):
+        # acestep15 has its blocks in a sub category
+        if hasattr(dif_mod.decoder, 'layers'):
+            # acestep15
+            double_count = len(dif_mod.decoder.layers)
 
     if hasattr(dif_mod, 'blocks'):
         # cogvideoX, cosmos, anima, genmo, hunyuand3dv2_1, hydit, pixart, wan
@@ -87,9 +100,6 @@ def get_model_config(model):
     if hasattr(dif_mod, 'transformer_blocks'):
         # acestep, lightricks, qwen_image
         double_count = len(dif_mod.transformer_blocks)
-
-    if double_count == 0:
-        print("S2 Perpo Guidance was unable to detect layers.")
 
     return (double_count, single_count)
 
@@ -237,20 +247,19 @@ class S2GuidanceDIT(io.ComfyNode):
             return refined * (torch.norm(cfg_result, dim=None) / torch.norm(refined, dim=None))
 
         def post_cfg_function(args):
-            model = args["model"]
-            (double_layers, single_layers) = get_model_config(model)
-
-            if double_layers == 0:
-                print("Model not supported for S²-Guidance")
-                # if not supported architecture do not change function
-                return io.NodeOutput(m)
-
             return apply_s2_guidance(args, double_layers, single_layers)
 
         print(
             "Using S²-Guidance - s2_guidance_scale:", s2_guidance_scale, 
             ", skip_layers_percentage:", skip_layers_percentage)
+
         m = model.clone()
+
+        (double_layers, single_layers) = get_model_config(m.model)
+        if double_layers == 0:
+            print("Model not supported for S²-Guidance")
+            return io.NodeOutput(m) # if not supported architecture do not change function
+
         m.set_model_sampler_post_cfg_function(post_cfg_function)
 
         return io.NodeOutput(m)
@@ -388,13 +397,6 @@ class PerpoGuidanceDIT(io.ComfyNode):
             return perpo_result
 
         def post_cfg_function(args):
-            model = args["model"]
-            (double_layers, single_layers) = get_model_config(model)
-
-            if double_layers == 0:
-                print("Model not supported for Perpo-Guidance")
-                return io.NodeOutput(m) # if not supported architecture do not change function
-
             return apply_perpo_guidance(args, double_layers, single_layers, apply_clamping)
 
         print("Using Perpo-Guidance - perpo_guidance_scale:",
@@ -402,6 +404,12 @@ class PerpoGuidanceDIT(io.ComfyNode):
                 skip_layers_percentage)
 
         m = model.clone()
+
+        (double_layers, single_layers) = get_model_config(m.model)
+        if double_layers == 0:
+            print("Model not supported for Perpo-Guidance")
+            return io.NodeOutput(m) # if not supported architecture do not change function
+
         m.set_model_sampler_post_cfg_function(post_cfg_function)
 
         return io.NodeOutput(m)
